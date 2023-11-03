@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Myfin</title>
+    <link rel="shortcut icon" href="assets/finance-svgrepo-com.svg" type="image/x-icon">
+</head>
+<style>
+    .chart-container { 
+        min-width: 510px;
+        border-radius: 6px;
+        box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+        padding: .75rem !important;
+        background-color: white;
+    }
+
+    .charts-list-container {
+        display: flex;
+        flex-flow: row wrap;
+        justify-content: center;
+        gap: .75rem !important;
+    }
+
+    .table-container {
+        border-radius: 9px !important;
+        box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+        background-color: white;
+    }
+
+    .global-container {
+        display: flex;
+        flex-flow: column wrap;
+        max-width: 1080px;
+        margin: auto;
+        gap: .75rem !important;
+    }
+
+    .labels-container {
+        display: flex;
+        flex-flow: row wrap;
+        gap: .75rem !important;
+    }
+
+    .loader {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        max-width: 12rem;
+        transform: translate(-50%, -50%);
+    }
+
+    .loader-container {
+        top: 0;
+        left: 0;
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        z-index: 999 !important;
+        background-color: black;
+        opacity: 80%;
+    }
+
+    body {
+        background-color: #ececec;
+    }
+</style>
+<div class="loader-container" id="container">
+    <img class="loader" src="assets/finance-svgrepo-com.svg" alt="">
+</div>
+<body>
+    <script src="src/js/myfin.utils.js"></script>
+    <script defer src="dist/alpine-js/cdn.min.js"></script>
+    <script src="dist/chart-js/chart.js"></script>
+    <script src="dist/luxon/luxon.min.js"></script>
+    <div x-data="mainContext" class="global-container">
+        <input @change="handleInputFileChange" x-ref="fileInput" type="file">
+        <div class="labels-container" x-show="chartsLoaded">
+            <span>Receitas totais: <b x-html="totalIncome"></b></span>
+            <span>Despesas totais: <b x-html="totalExpenses"></b></span>
+        </div>
+        <div class="charts-list-container" x-show="chartsLoaded">
+            <div class="chart-container">
+                <canvas id="incomeChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="expensesChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="incomePieChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="expensesPieChart"></canvas>
+            </div>
+        </div>
+        <div class="table-container" x-show="chartsLoaded">
+            <table id="transactions-table" border="1" width="100%">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Descrição</th>
+                        <th>Valor</th>
+                    </tr>
+                </th>
+                <tbody>
+                    <template x-for="transaction in transactions">
+                        <tr>
+                            <td x-html="transaction.datetime.toISODate()"></td>
+                            <td x-html="transaction.description"></td>
+                            <td x-html="transaction.amount"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        const loader = document.getElementById('container')
+        const transactionBuilder = {
+            withAmount(amount) {
+                this.amount = amount
+                return this
+            },
+            withDescription(description) {
+                this.description = description
+                return this
+            },
+            withDatetime(datetime) {
+                this.datetime = datetime
+                return this
+            },
+            withType(type) {
+                this.type = type
+                return this
+            },
+            build() {
+                return {
+                    amount: this.amount,
+                    description: this.description,
+                    datetime: this.datetime,
+                    type: this.type,
+                }
+            }
+        }
+
+        const bankAccountBuilder = {
+            withName(name) {
+                this.name = name
+                return this
+            },
+            withBranch(branch) {
+                this.branch = branch
+                return this
+            },
+            withAccount(account) {
+                this.account = account
+                return this
+            },
+            withBankCode(bankCode) {
+                this.bankCode = bankCode
+                return this
+            },
+            withCurrence(currence) {
+                this.currence = currence
+                return this
+            },
+            build() {
+                return {
+                    name: this.name,
+                    branch: this.branch,
+                    account: this.account,
+                    bankCode: this.bankCode,
+                    currence: this.currence
+                }
+            }
+        }
+
+        const utils = {
+            inputFile: {
+                hasFiles(el) {
+                    try {
+                        return el.files.length > 0
+                    } catch {
+                        return false
+                    }
+                }
+            },
+            file: {
+                isOfx(file) {
+                    return file.name.toLowerCase().endsWith('.ofx')
+                },
+                parseXmlContent2Dom(rawContent) {
+                    const ofx = rawContent.split('<OFX>', 2);
+                    const headerString = ofx[0].split(/\r?\n/);
+
+                    let header = {};
+
+                    headerString.forEach(attrs => {
+                        const headAttr = attrs.split(/:/,2);
+                        header[headAttr[0]] = headAttr[1];
+                    });
+
+                    const content = '<OFX>' + ofx[1];
+                    const parser = new DOMParser()
+
+                    return parser.parseFromString(content, "text/xml")
+                }
+            },
+            loader: {
+                showLoader() {
+                    loader.style.display = 'block'
+                },
+                hideLoader() {
+                    loader.style.display = 'none'
+                }
+            }
+        }
+
+        const chartServices = {
+            contexts: {
+                incomeChart: document.getElementById('incomeChart'),
+                expensesChart: document.getElementById('expensesChart'),
+                incomePieChart: document.getElementById('incomePieChart'),
+                expensesPieChart: document.getElementById('expensesPieChart')
+            },
+            charts: {
+                incomeChart: null,
+                expensesChart: null,
+                incomePieChart: null,
+                expensesPieChart: null
+            },
+            bootstrapIncomeChart(labels, data, descriptions, currency = 'BRL') {
+                if (chartServices.charts.incomeChart != null) { chartServices.charts.incomeChart.destroy() }
+
+                const incomeChart = new Chart(chartServices.contexts.incomeChart, {
+                    type: 'bar',
+                    data: { labels: labels, datasets: [{ label: 'Receitas', data: data, borderWidth: 1, backgroundColor: '#98FB98' }] },
+                    options: {
+                        scales: { y: { beginAtZero: true } },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+
+                                        if (label) { label += ': ' }
+                                        if (context.parsed.y !== null) { label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(context.parsed.y) }
+
+                                        return label;
+                                    },
+                                    title: ctx => {
+                                        const title = `[${ctx[0].label}] ${descriptions[ctx[0].dataIndex].split('-')[0]}`
+                                        return title
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+
+                chartServices.charts.incomeChart = incomeChart
+            },
+            bootstrapExpensesChart(labels, data, descriptions, currency = 'BRL') {
+                if (chartServices.charts.expensesChart != null) { chartServices.charts.expensesChart.destroy() }
+
+                const expensesChart = new Chart(chartServices.contexts.expensesChart, {
+                    type: 'bar',
+                    data: { labels: labels, datasets: [{ label: 'Despesas', data: data, borderWidth: 1, backgroundColor: '#FF6B6B' }] },
+                    options: {
+                        scales: { y: { beginAtZero: true } },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+
+                                        if (label) { label += ': ' }
+                                        if (context.parsed.y !== null) { label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(context.parsed.y) }
+
+                                        return label;
+                                    },
+                                    title: ctx => {
+                                        const title = `[${ctx[0].label}] ${descriptions[ctx[0].dataIndex].split('-')[0]}`
+                                        return title
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+
+                chartServices.charts.expensesChart = expensesChart
+            },
+            bootstrapIncomePieChart(labels, data, descriptions, currency = 'BRL') {
+                if (chartServices.charts.incomePieChart != null) { chartServices.charts.incomePieChart.destroy() }
+
+                const incomePieChart = new Chart(chartServices.contexts.incomePieChart, {
+                    type: 'doughnut',
+                    data: { labels: labels, datasets: [{ label: 'Receitas', data: data, borderWidth: 1, backgroundColor: labels.map(() => getRandomPastelColor()) }] },
+                    options: {
+                        scales: { y: { beginAtZero: true } },
+                        plugins: {
+                            title: { display: true, text: 'Receitas', padding: { top: 3, bottom: 15 } },
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+
+                                        if (label) { label += ': ' }
+                                        if (context.parsed.y !== null) { label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(context.parsed) }
+
+                                        return label;
+                                    },
+                                    title: ctx => {
+                                        const title = `[${ctx[0].label}] ${descriptions[ctx[0].dataIndex].split('-')[0]}`
+                                        return title
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+
+                chartServices.charts.incomePieChart = incomePieChart
+            },
+            bootstrapExpensesPieChart(labels, data, descriptions, currency = 'BRL') {
+                if (chartServices.charts.expensesPieChart != null) { chartServices.charts.expensesPieChart.destroy() }
+
+                const expensesPieChart = new Chart(chartServices.contexts.expensesPieChart, {
+                    type: 'doughnut',
+                    data: { labels: labels, datasets: [{ label: 'Receitas', data: data, borderWidth: 1, backgroundColor: labels.map(() => getRandomPastelColor()) }] },
+                    options: {
+                        scales: { y: { beginAtZero: true } },
+                        plugins: {
+                            title: { display: true, text: 'Despesas', padding: { top: 3, bottom: 15 } },
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+
+                                        if (label) { label += ': ' }
+                                        if (context.parsed.y !== null) { label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(context.parsed) }
+
+                                        return label;
+                                    },
+                                    title: ctx => {
+                                        const title = `[${ctx[0].label}] ${descriptions[ctx[0].dataIndex].split('-')[0]}`
+                                        return title
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+
+                chartServices.charts.expensesPieChart = expensesPieChart
+            },
+            addNewDataToChart(chart, label, data) {
+                chart.data.datasets.forEach(t => {
+                    t.data.push(data)
+                    t.data.shift()
+                })
+
+                chart.data.labels.push(label)
+                chart.data.labels.shift()
+
+                chart.update()
+            },
+        }
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('mainContext', () => ({
+                bank: null,
+                transactions: [],
+                incomes: [],
+                expenses: [],
+
+                totalIncome: 0,
+                totalExpenses: 0,
+
+                chartsLoaded: false,
+
+                fileContent: 'No content to display',
+                parsedXml: null,
+
+                doSomething() {
+                    chartServices.addNewDataToChart(chartServices.charts.myChart, 'hehe boy', Math.random() * 100)
+                },
+                handleInputFileChange(e) {
+                    const fileInput = this.$refs.fileInput;
+
+                    if (!utils.inputFile.hasFiles(fileInput)) {
+                        return
+                    }
+
+                    const file = fileInput.files[0]
+
+                    if (!utils.file.isOfx(file)) {
+                        this.fileContent = 'This is not a .OFX file'
+                        return
+                    }
+
+                    utils.loader.showLoader()
+
+                    const reader = new FileReader()
+
+                    reader.onload = (e) => {
+                        this.fileContent = e.target.result
+                        this.parsedXml = utils.file.parseXmlContent2Dom(e.target.result)
+                        this.handleParsedXml()
+                    }
+
+                    reader.readAsText(file)
+                },
+                handleParsedXml() {
+                    this.transactions = []
+                    this.incomes = []
+                    this.expenses = []
+
+                    const xml = this.parsedXml
+                    const transacoes = xml.getElementsByTagName('STMTTRN')
+
+                    const moeda = xml.getElementsByTagName('CURDEF')[0].textContent
+                    const banco = xml.getElementsByTagName('BANKID')[0].textContent
+                    const agencia = xml.getElementsByTagName('BRANCHID')[0].textContent
+                    const conta = xml.getElementsByTagName('ACCTID')[0].textContent
+
+                    const bank = bankAccountBuilder
+                        .withCurrence(moeda)
+                        .withBankCode(banco)
+                        .withBranch(agencia)
+                        .withAccount(conta)
+                        .build()
+
+                    this.bank = bank
+
+                    for (let i = 0; i < transacoes.length; i++) {
+                        const item = transacoes[i]
+
+                        const title = item.getElementsByTagName('MEMO')[0].textContent
+                        const value = item.getElementsByTagName('TRNAMT')[0].textContent
+                        const type = item.getElementsByTagName('TRNTYPE')[0].textContent
+                        const rawdate = item.getElementsByTagName('DTPOSTED')[0].textContent
+
+                        const pattern = /[0-9]{8}/g
+                        const parsedRawdate = rawdate.match(pattern)[0]
+
+                        const date = luxon.DateTime.fromFormat(parsedRawdate, 'yyyyMMdd')
+
+                        const transaction = transactionBuilder
+                            .withDescription(title)
+                            .withAmount(Number(value))
+                            .withType(type)
+                            .withDatetime(date)
+                            .build()
+
+                        if (type == 'DEBIT' || type == 'PAYMENT') {
+                            this.expenses.push(transaction)
+                        } else if (type == 'CREDIT') {
+                            this.incomes.push(transaction)
+                        }
+
+                        this.transactions.push(transaction)
+                    }
+
+                    this.renderIncomeVsExpensesChart()
+
+                    utils.loader.hideLoader()
+                },
+                renderIncomeVsExpensesChart() {
+                    const incomeLabels = this.incomes.map(t => t.datetime.toISODate())
+                    const incomeValues = this.incomes.map(t => t.amount)
+                    const incomeDescriptions = this.incomes.map(t => t.description)
+
+                    const expensesLabels = this.expenses.map(t => t.datetime.toISODate())
+                    const expensesValues = this.expenses.map(t => Math.abs(t.amount))
+                    const expensesDescriptions = this.expenses.map(t => t.description)
+
+                    this.totalIncome = this.incomes.reduce((acc, t) => t.amount + acc, 0)
+                    this.totalExpenses = this.expenses.reduce((acc, t) => t.amount + acc, 0)
+
+                    chartServices.bootstrapIncomeChart(incomeLabels, incomeValues, incomeDescriptions)
+                    chartServices.bootstrapExpensesChart(expensesLabels, expensesValues, expensesDescriptions)
+                    chartServices.bootstrapIncomePieChart(incomeLabels, incomeValues, incomeDescriptions)
+                    chartServices.bootstrapExpensesPieChart(expensesLabels, expensesValues, expensesDescriptions)
+
+                    this.chartsLoaded = true
+                }
+            }))
+
+            utils.loader.hideLoader()
+        })
+    </script>
+</body>
+</html>
