@@ -5,66 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Myfin</title>
     <link rel="shortcut icon" href="assets/finance-svgrepo-com.svg" type="image/x-icon">
+    <link rel="stylesheet" href="src/css/styles.css">
 </head>
-<style>
-    .chart-container { 
-        min-width: 510px;
-        border-radius: 6px;
-        box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
-        padding: .75rem !important;
-        background-color: white;
-    }
-
-    .charts-list-container {
-        display: flex;
-        flex-flow: row wrap;
-        justify-content: center;
-        gap: .75rem !important;
-    }
-
-    .table-container {
-        border-radius: 9px !important;
-        box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
-        background-color: white;
-    }
-
-    .global-container {
-        display: flex;
-        flex-flow: column wrap;
-        max-width: 1080px;
-        margin: auto;
-        gap: .75rem !important;
-    }
-
-    .labels-container {
-        display: flex;
-        flex-flow: row wrap;
-        gap: .75rem !important;
-    }
-
-    .loader {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        max-width: 12rem;
-        transform: translate(-50%, -50%);
-    }
-
-    .loader-container {
-        top: 0;
-        left: 0;
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        z-index: 999 !important;
-        background-color: black;
-        opacity: 80%;
-    }
-
-    body {
-        background-color: #ececec;
-    }
-</style>
 <div class="loader-container" id="container">
     <img class="loader" src="assets/finance-svgrepo-com.svg" alt="">
 </div>
@@ -76,8 +18,8 @@
     <div x-data="mainContext" class="global-container">
         <input @change="handleInputFileChange" x-ref="fileInput" type="file">
         <div class="labels-container" x-show="chartsLoaded">
-            <span>Receitas totais: <b x-html="totalIncome"></b></span>
-            <span>Despesas totais: <b x-html="totalExpenses"></b></span>
+            <span>Receitas totais: <b class="font-size-2 color-income" x-html="totalIncome.toFixed(2)"></b></span>
+            <span>Despesas totais: <b class="font-size-2 color-expenses" x-html="totalExpenses.toFixed(2)"></b></span>
         </div>
         <div class="charts-list-container" x-show="chartsLoaded">
             <div class="chart-container">
@@ -94,20 +36,20 @@
             </div>
         </div>
         <div class="table-container" x-show="chartsLoaded">
-            <table id="transactions-table" border="1" width="100%">
+            <table id="transactions-table" width="100%">
                 <thead>
                     <tr>
-                        <th>Data</th>
-                        <th>Descrição</th>
-                        <th>Valor</th>
+                        <th align="left" style="width: 30px;">Data</th>
+                        <th align="right">Valor</th>
+                        <th align="left">Descrição</th>
                     </tr>
                 </th>
                 <tbody>
                     <template x-for="transaction in transactions">
                         <tr>
                             <td x-html="transaction.datetime.toISODate()"></td>
+                            <td align="right" x-html="transaction.amount.toFixed(2)"></td>
                             <td x-html="transaction.description"></td>
-                            <td x-html="transaction.amount"></td>
                         </tr>
                     </template>
                 </tbody>
@@ -372,6 +314,9 @@
 
         document.addEventListener('alpine:init', () => {
             Alpine.data('mainContext', () => ({
+                /**
+                 * Bindable variables
+                 */
                 bank: null,
                 transactions: [],
                 incomes: [],
@@ -385,6 +330,9 @@
                 fileContent: 'No content to display',
                 parsedXml: null,
 
+                /**
+                 * Bindable functions
+                 */
                 doSomething() {
                     chartServices.addNewDataToChart(chartServices.charts.myChart, 'hehe boy', Math.random() * 100)
                 },
@@ -470,13 +418,29 @@
                     utils.loader.hideLoader()
                 },
                 renderIncomeVsExpensesChart() {
-                    const incomeLabels = this.incomes.map(t => t.datetime.toISODate())
-                    const incomeValues = this.incomes.map(t => t.amount)
-                    const incomeDescriptions = this.incomes.map(t => t.description)
+                    const orderedIncomes = this.incomes.sort((a, b) => {
+                        if (a.datetime <= b.datetime) {
+                            return -1
+                        } else {
+                            return 1
+                        }
+                    })
 
-                    const expensesLabels = this.expenses.map(t => t.datetime.toISODate())
-                    const expensesValues = this.expenses.map(t => Math.abs(t.amount))
-                    const expensesDescriptions = this.expenses.map(t => t.description)
+                    const incomeLabels = orderedIncomes.map(t => t.datetime.toISODate())
+                    const incomeValues = orderedIncomes.map(t => t.amount)
+                    const incomeDescriptions = orderedIncomes.map(t => t.description)
+
+                    const orderedExpenses = this.expenses.sort((a, b) => {
+                        if (a.datetime <= b.datetime) {
+                            return -1
+                        } else {
+                            return 1
+                        }
+                    })
+
+                    const expensesLabels = orderedExpenses.map(t => t.datetime.toISODate())
+                    const expensesValues = orderedExpenses.map(t => Math.abs(t.amount))
+                    const expensesDescriptions = orderedExpenses.map(t => t.description)
 
                     this.totalIncome = this.incomes.reduce((acc, t) => t.amount + acc, 0)
                     this.totalExpenses = this.expenses.reduce((acc, t) => t.amount + acc, 0)
