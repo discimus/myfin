@@ -17,6 +17,9 @@
     <script src="dist/luxon/luxon.min.js"></script>
     <div x-data="mainContext" class="global-container">
         <input @change="handleInputFileChange" x-ref="fileInput" type="file">
+        <div x-show="shouldShowTip" class="tip">
+            <img src="assets/tip.png" alt="">
+        </div>
         <div class="labels-container" x-show="chartsLoaded">
             <span>Receitas totais: <b class="font-size-2 color-income" x-html="totalIncome.toFixed(2)"></b></span>
             <span>Despesas totais: <b class="font-size-2 color-expenses" x-html="totalExpenses.toFixed(2)"></b></span>
@@ -45,7 +48,7 @@
                     </tr>
                 </th>
                 <tbody>
-                    <template x-for="transaction in transactions">
+                    <template x-for="transaction in transactions.reverse()">
                         <tr>
                             <td x-html="transaction.datetime.toISODate()"></td>
                             <td align="right" x-html="transaction.amount.toFixed(2)"></td>
@@ -330,12 +333,11 @@
                 fileContent: 'No content to display',
                 parsedXml: null,
 
+                shouldShowTip: true,
+
                 /**
                  * Bindable functions
                  */
-                doSomething() {
-                    chartServices.addNewDataToChart(chartServices.charts.myChart, 'hehe boy', Math.random() * 100)
-                },
                 handleInputFileChange(e) {
                     const fileInput = this.$refs.fileInput;
 
@@ -346,9 +348,11 @@
                     const file = fileInput.files[0]
 
                     if (!utils.file.isOfx(file)) {
-                        this.fileContent = 'This is not a .OFX file'
+                        alert('This is not a .OFX file')
                         return
                     }
+
+                    this.shouldShowTip = false
 
                     utils.loader.showLoader()
 
