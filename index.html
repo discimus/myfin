@@ -23,6 +23,7 @@
         <div class="labels-container" x-show="chartsLoaded">
             <span>Receitas totais: <b class="font-size-2 color-income" x-html="totalIncome.toFixed(2)"></b></span>
             <span>Despesas totais: <b class="font-size-2 color-expenses" x-html="totalExpenses.toFixed(2)"></b></span>
+            <span>Saldo: <b class="font-size-2" :class="{ 'color-expenses': (totalIncome - Math.abs(totalExpenses)) < 0, 'color-income': (totalIncome - Math.abs(totalExpenses)) > 0 }" x-html="(totalIncome - Math.abs(totalExpenses)).toFixed(2)"></b></span>
         </div>
         <div class="charts-list-container" x-show="chartsLoaded">
             <div class="chart-container">
@@ -48,10 +49,10 @@
                     </tr>
                 </th>
                 <tbody>
-                    <template x-for="transaction in transactions.reverse()">
+                    <template x-for="transaction in transactions">
                         <tr>
                             <td x-html="transaction.datetime.toISODate()"></td>
-                            <td align="right" x-html="transaction.amount.toFixed(2)"></td>
+                            <td align="right" :class="{ 'color-income': transaction.amount > 0, 'color-expenses': transaction.amount < 0 }" x-html="transaction.amount.toFixed(2)"></td>
                             <td x-html="transaction.description"></td>
                         </tr>
                     </template>
